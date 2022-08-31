@@ -1,0 +1,333 @@
+@niagaraIcon="module://icons/x16/control/util/switch.png"
+public class BlinderControl extends Component
+{
+	@readonly @range = Status.statusStr
+	property int status := Status.OK;
+	
+	@readonly @summary
+	property  bool outUp := false;
+	@readonly @summary
+	property  bool outDown := false;
+	@summary @uinit=Units.percent
+	property float position := 0.0;
+	
+	@unit=Units.percent
+	@config property float setPoint	
+	@allowNull = false
+	property  bool inUp := false;
+	@allowNull = false
+	property  bool inDown := false;
+	@allowNull = false
+	property bool calibrationTrigger := false;
+
+	
+	@allowNull = false @unit=Units.millisecond
+	@config property long calibrationTime := 0L;
+	
+	action void startCalibr()
+	{           
+		calibrationTrigger := true
+	}
+	
+	action void stopCalibr()
+	{           
+		calibrationTrigger := false
+	}
+	
+	override virtual void start() {
+		super.start();
+		state = STATE_IDLE;
+		outUp := false;
+		outDown := false;
+		actualTime = Sys.ticks();
+		actualPosition = 0.0;
+		lastSetPoint = setPoint;
+		autoControl = false;
+	}
+	
+	override virtual void changed(Slot slot) {
+		super.changed(slot);
+		
+		if((slot == BlinderControl.outUp) || (slot == BlinderControl.outDown)) {
+			if(timeDelay < actualTime && (!outUp) && (!outDown)) {
+				if((setPoint > 0.0) && (setPoint < 100.0)) {
+					setPoint := position;
+					setInFloatComponent(BlinderControl.setPoint, position);
+				}
+				else {
+					position := setPoint;
+					setInFloatComponent(BlinderControl.position, setPoint);
+				}
+			}
+		}
+		
+		if (slot == BlinderControl.inUp) {
+			if(inDown && inUp) {
+				inDown := false;
+				setInBoolComponent(BlinderControl.inDown, false);
+			}
+		}
+		if (slot == BlinderControl.inDown) {
+			if(inDown && inUp) {
+				inUp := false;
+				setInBoolComponent(BlinderControl.inUp, false);
+			}
+		}
+		if (slot == BlinderControl.inDown || slot == BlinderControl.inUp) {
+			if(autoControl)
+				autoControl = false
+			else
+				state = STATE_MANUAL_CONTROL;
+		}
+		
+		if (slot == BlinderControl.setPoint && lastSetPoint != setPoint) {
+			lastSetPoint = setPoint;
+			if(setPoint != position) {
+				state = STATE_SET_POSITION;
+				autoControl = true;
+				if(setPoint > actualPosition) { //Opening
+					inDown := false;
+					setInBoolComponent(BlinderControl.inDown, false);
+					inUp := true;
+					autoControl = true;
+					setInBoolComponent(BlinderControl.inUp, true);
+					stateOfDrive = DRIVE_OPENING;
+				}
+				if(setPoint < actualPosition) { //Closing
+					inUp := false;
+					setInBoolComponent(BlinderControl.inUp, false);
+					inDown := true;
+					autoControl = true;
+					setInBoolComponent(BlinderControl.inDown, true);
+					stateOfDrive = DRIVE_CLOSING;
+				}
+			}
+		}
+		
+		if(slot == BlinderControl.calibrationTrigger) {
+			outUp := false;
+			outDown := false;
+			if(calibrationTrigger) {
+				timeDelay = actualTime + 1000ms;
+				state = STATE_CALIBRATION;
+			}
+			else {
+				calibrationTime := ((Sys.ticks() - startTime) / 1ms);
+				startTime = 0L;
+				state = STATE_IDLE;
+			}
+		}
+		
+		if ((slot == BlinderControl.outUp && outUp) || (slot == BlinderControl.outDown && outDown)) {
+			startTime = actualTime;
+		}
+	}
+
+	override virtual void execute() { 
+		long deltaTime = Sys.ticks() - actualTime;
+		actualTime += deltaTime;
+		stepOfPosition = ((float)deltaTime) / ((float)(calibrationTime * 1ms)) * 100.0;
+		if(outUp) {
+			actualPosition += stepOfPosition;
+		}
+		else if(outDown) {
+			actualPosition -= stepOfPosition;
+		}
+		
+		if(actualPosition >= 100.0) 
+			actualPosition = 100.0;
+		else if(actualPosition <= 0.0) 
+			actualPosition = 0.0;
+			
+		if(outUp || outDown) {
+			float x = round(actualPosition, 0);
+			setInFloatComponent(BlinderControl.position, x);
+			position := x;
+		}
+		else
+			actualPosition = position;
+		
+		if(timeDelay > actualTime) {
+			return;
+		}
+		
+		if(state == STATE_CALIBRATION) {
+			outDown := true;
+			startTime = actualTime;
+			calibrationTime := 0L;
+			state = STATE_IDLE;
+		}
+		
+		if(state == STATE_SET_POSITION) {
+			checkAndControlOutputs(STATE_WAIT_FOR_POSITION);
+		}
+		
+		if(state == STATE_WAIT_FOR_POSITION) {
+			autoControl = true;
+			if((stateOfDrive == DRIVE_OPENING) && (setPoint <= (position + stepOfPosition))) {
+				actualPosition = setPoint;
+				inUp := false;
+				setInBoolComponent(BlinderControl.inUp, false);
+				outUp := false;
+				state = STATE_IDLE;
+				stateOfDrive = NO_DRIVE;
+			}
+			if((stateOfDrive == DRIVE_CLOSING) && (setPoint >= (position - stepOfPosition))) {
+				actualPosition = setPoint;
+				inDown := false;
+				setInBoolComponent(BlinderControl.inDown, false);
+				outDown := false;
+				state = STATE_IDLE;
+				stateOfDrive = NO_DRIVE;
+			}
+		}
+		
+		if(state == STATE_MANUAL_CONTROL) {
+			checkAndControlOutputs(STATE_IDLE);
+		}
+		
+		if((startTime != 0L) && (calibrationTime > 0L) && (actualTime >= (startTime + (calibrationTime * 1ms)))) {
+			inUp := false;
+			setInBoolComponent(BlinderControl.inUp, false);
+			inDown := false;
+			setInBoolComponent(BlinderControl.inDown, false);
+			startTime = 0L;
+		}
+	
+	
+		/*	if(timeDelay > Sys.ticks()) {
+			return;
+		}
+		if((inUp && outDown) || (inDown && outUp)) {
+			outDown := false;
+			outUp := false;
+			timeDelay = Sys.ticks() + 1000ms;
+		}
+		else if(!(inUp && inDown)){
+			outUp := inUp;
+			outDown := inDown;
+		}
+		else {
+			outUp := false;
+			outDown := false;
+		}*/
+		
+	
+
+	}
+	
+	private void checkAndControlOutputs(int nextState) {
+		if((inUp && outDown) || (inDown && outUp)) {
+			outDown := false;
+			outUp := false;
+			timeDelay = actualTime + 1000ms;
+		}
+		else if(!(inUp && inDown)){
+			outUp := inUp;
+			outDown := inDown;
+			state = nextState;
+		}
+		else {
+			outUp := false;
+			outDown := false;
+			state = STATE_IDLE;
+			autoControl = false;
+		}
+	}
+	
+	private float round(float in, int decimalPlaces) {
+		float factor = 1.0;
+		if(decimalPlaces > 0)
+			for(int i = 0; i < decimalPlaces; i++)
+				factor = factor * 10.0;
+		if(decimalPlaces < 0)
+			for(int i = decimalPlaces; i < 0; i++)
+				factor = factor / 10.0;
+		
+		float x = in * factor;
+		if(in >= 0.0)
+			x = x + 0.5;
+		else
+			x = x - 0.5;
+
+		long xtruncated = (long)x;
+		return ((float)xtruncated) / factor;
+	
+	}
+
+	Component getComponentConnectedToSlot(Component c, Slot slot) {
+		Component ret = null;
+		Link l = c.linksTo;
+
+		//przeszukaj wszystkie linki przychodzace
+		while (l != null) {
+			int toSlotId = l.toSlot;
+			Slot toSlot = c.type.slot(toSlotId);
+			//jeśli wchodzi do slotu in
+			if (toSlot == slot) {
+				//poberz komponent z którego wychodzi link
+				ret = Sys.app.lookup(l.fromComp);
+				
+				break;
+			}
+
+			//nastepny link
+			l = l.nextTo;
+		}
+
+		return ret;
+	}
+	
+	void setInBoolComponent(Slot inSlot, bool val) {
+		//poszukaj komponentu podpietego do slotu in
+		Component editedComponent = getComponentConnectedToSlot(this, inSlot);
+		if (editedComponent == null) {
+			return;
+		}
+		//poszukaj akcje set typu float i ją wywołaj
+		foreach (Slot slot : editedComponent.type.slots, editedComponent.type.slotsLen)
+		{
+			if (slot.isAction() && slot.name.equals("set") && slot.type.id == Type.boolId) {
+				editedComponent.invokeBool(slot, val);
+				break;
+			}
+		}
+	}
+	
+	void setInFloatComponent(Slot inSlot, float val) {
+		//poszukaj komponentu podpietego do slotu in
+		Component editedComponent = getComponentConnectedToSlot(this, inSlot);
+		if (editedComponent == null) {
+			return;
+		}
+		//poszukaj akcje set typu float i ją wywołaj
+		foreach (Slot slot : editedComponent.type.slots, editedComponent.type.slotsLen)
+		{
+			if (slot.isAction() && slot.name.equals("set") && slot.type.id == Type.floatId) {
+				editedComponent.invokeFloat(slot, val);
+				break;
+			}
+		}
+	}
+	
+	define int STATE_IDLE = 1;
+	define int STATE_WAITING = 2;
+	define int STATE_MANUAL_CONTROL = 3;
+	define int STATE_SET_POSITION = 4;
+	define int STATE_WAIT_FOR_POSITION = 5;
+	define int STATE_CALIBRATION = 6;
+	
+	define int NO_DRIVE = 0;
+	define int DRIVE_OPENING = 1;
+	define int DRIVE_CLOSING = 2;
+	
+	private bool autoControl = false;
+	private int stateOfDrive = NO_DRIVE;
+	private int state = STATE_IDLE;
+	private long timeDelay = 0L;
+	private long startTime = 0L;
+	private long actualTime = 0L;
+	private float actualPosition = 0.0;
+	private float stepOfPosition = 0.0;
+	private float lastSetPoint = 0.0;
+}
