@@ -1,4 +1,4 @@
-<sedonaKit name="KUAN_HomeControl" vendor="KUAN" version="1.2.28.0.50" description="">
+<sedonaKit name="KUAN_HomeControl" vendor="KUAN" version="1.2.28.0.56" description="">
 
     <depend on="sys 1.2.28.105+" />
 	<source dir="." />
