@@ -11,27 +11,35 @@ public class BlinderControl extends Component
 	@summary @uinit=Units.percent
 	property float position := 0.0;
 	
-	@unit=Units.percent
+	@summary @unit=Units.percent
 	@config property float setPoint	
 	@allowNull = false
 	property  bool inUp := false;
 	@allowNull = false
 	property  bool inDown := false;
 	@allowNull = false
-	property bool calibrationTrigger := false;
-
+	property float blinderStatus := 0.0;
+	@range = "Off,RiseUp,FallDown"
+	property int calibrationTrigger := OFF;
 	
 	@allowNull = false @unit=Units.millisecond
-	@config property long calibrationTime := 0L;
+	@config property long riseUpTime := 0L;
+	@allowNull = false @unit=Units.millisecond
+	@config property long fallDownTime := 0L;
 	
-	action void startCalibr()
+	action void riseUpCalibr()
 	{           
-		calibrationTrigger := true
+		calibrationTrigger := RISE_UP;
+	}
+	
+	action void fallDownCalibr()
+	{           
+		calibrationTrigger := FALL_DOWN;
 	}
 	
 	action void stopCalibr()
 	{           
-		calibrationTrigger := false
+		calibrationTrigger := OFF;
 	}
 	
 	override virtual void start() {
@@ -43,6 +51,8 @@ public class BlinderControl extends Component
 		actualPosition = 0.0;
 		lastSetPoint = setPoint;
 		autoControl = false;
+		lastCalibrationTrigger = calibrationTrigger;
+		blinderStatus := getStatus();
 	}
 	
 	override virtual void changed(Slot slot) {
@@ -54,7 +64,7 @@ public class BlinderControl extends Component
 					setPoint := position;
 					setInFloatComponent(BlinderControl.setPoint, position);
 				}
-				else {
+				else if(state == STATE_WAIT_FOR_POSITION) {
 					position := setPoint;
 					setInFloatComponent(BlinderControl.position, setPoint);
 				}
@@ -104,17 +114,26 @@ public class BlinderControl extends Component
 			}
 		}
 		
+		if (slot == BlinderControl.blinderStatus) {
+			setInFloatComponent(BlinderControl.blinderStatus, blinderStatus);
+		}
+		
 		if(slot == BlinderControl.calibrationTrigger) {
 			outUp := false;
 			outDown := false;
-			if(calibrationTrigger) {
-				timeDelay = actualTime + 1000ms;
+			if(calibrationTrigger == RISE_UP || calibrationTrigger == FALL_DOWN) {
+				timeDelay = actualTime + 400ms;
 				state = STATE_CALIBRATION;
+				lastCalibrationTrigger = calibrationTrigger;
 			}
 			else {
-				calibrationTime := ((Sys.ticks() - startTime) / 1ms);
+				if(lastCalibrationTrigger == RISE_UP)
+					riseUpTime := ((Sys.ticks() - startTime) / 1ms);
+				else if(lastCalibrationTrigger == FALL_DOWN)
+					fallDownTime := ((Sys.ticks() - startTime) / 1ms);
 				startTime = 0L;
 				state = STATE_IDLE;
+				lastCalibrationTrigger = OFF;
 			}
 		}
 		
@@ -126,11 +145,12 @@ public class BlinderControl extends Component
 	override virtual void execute() { 
 		long deltaTime = Sys.ticks() - actualTime;
 		actualTime += deltaTime;
-		stepOfPosition = ((float)deltaTime) / ((float)(calibrationTime * 1ms)) * 100.0;
 		if(outUp) {
+			stepOfPosition = ((float)deltaTime) / ((float)(riseUpTime * 1ms)) * 100.0;
 			actualPosition += stepOfPosition;
 		}
 		else if(outDown) {
+			stepOfPosition = ((float)deltaTime) / ((float)(fallDownTime * 1ms)) * 100.0;
 			actualPosition -= stepOfPosition;
 		}
 		
@@ -152,9 +172,15 @@ public class BlinderControl extends Component
 		}
 		
 		if(state == STATE_CALIBRATION) {
-			outDown := true;
+			if(calibrationTrigger == RISE_UP) {
+				outUp := true;
+				riseUpTime := 0L;
+			}
+			else if(calibrationTrigger == FALL_DOWN) {
+				outDown := true;
+				fallDownTime := 0L;
+			}
 			startTime = actualTime;
-			calibrationTime := 0L;
 			state = STATE_IDLE;
 		}
 		
@@ -186,22 +212,31 @@ public class BlinderControl extends Component
 			checkAndControlOutputs(STATE_IDLE);
 		}
 		
-		if((startTime != 0L) && (calibrationTime > 0L) && (actualTime >= (startTime + (calibrationTime * 1ms)))) {
-			inUp := false;
-			setInBoolComponent(BlinderControl.inUp, false);
-			inDown := false;
-			setInBoolComponent(BlinderControl.inDown, false);
-			startTime = 0L;
+		
+		if(startTime != 0L) {
+			if((outUp) && (riseUpTime > 0L) && (actualTime >= (startTime + (riseUpTime * 1ms)))) {
+				inUp := false;
+				setInBoolComponent(BlinderControl.inUp, false);
+				startTime = 0L;
+			}
+			else if((outDown) && (fallDownTime > 0L) && (actualTime >= (startTime + (fallDownTime * 1ms)))) {
+				inDown := false;
+				setInBoolComponent(BlinderControl.inDown, false);
+				startTime = 0L;
+			}
+			else if((calibrationTrigger == OFF) && (!(outDown || outUp)))
+				startTime = 0L;
 		}
 	
-	
+		blinderStatus := getStatus();
+
 		/*	if(timeDelay > Sys.ticks()) {
 			return;
 		}
 		if((inUp && outDown) || (inDown && outUp)) {
 			outDown := false;
 			outUp := false;
-			timeDelay = Sys.ticks() + 1000ms;
+			timeDelay = Sys.ticks() + 400ms;
 		}
 		else if(!(inUp && inDown)){
 			outUp := inUp;
@@ -220,7 +255,7 @@ public class BlinderControl extends Component
 		if((inUp && outDown) || (inDown && outUp)) {
 			outDown := false;
 			outUp := false;
-			timeDelay = actualTime + 1000ms;
+			timeDelay = actualTime + 400ms;
 		}
 		else if(!(inUp && inDown)){
 			outUp := inUp;
@@ -232,6 +267,21 @@ public class BlinderControl extends Component
 			outDown := false;
 			state = STATE_IDLE;
 			autoControl = false;
+		}
+	}
+
+	private float getStatus() {
+		if(outUp == true) {
+			return 1.0;	//opening
+		}
+		else if(outDown == true) {
+			return 2.0; //closing
+		}
+		else if(position == 0.0) {
+			return 3.0; //closed
+		}
+		else {
+			return 0.0; //open
 		}
 	}
 	
@@ -321,9 +371,14 @@ public class BlinderControl extends Component
 	define int DRIVE_OPENING = 1;
 	define int DRIVE_CLOSING = 2;
 	
+	define int OFF = 0;
+	define int RISE_UP = 1;
+	define int FALL_DOWN = 2;
+	
 	private bool autoControl = false;
 	private int stateOfDrive = NO_DRIVE;
 	private int state = STATE_IDLE;
+	private int lastCalibrationTrigger = OFF;
 	private long timeDelay = 0L;
 	private long startTime = 0L;
 	private long actualTime = 0L;
