@@ -6,24 +6,34 @@ public class BlinderControl extends Component
 	
 	@readonly @summary
 	property  bool outUp := false;
+	
 	@readonly @summary
 	property  bool outDown := false;
+	
 	@summary @uinit=Units.percent
 	property float position := 0.0;
 	
 	@summary @unit=Units.percent
 	@config property float setPoint	
-	@allowNull = false
+	
+	@summary @allowNull = false 
 	property  bool inUp := false;
-	@allowNull = false
+	
+	@summary @allowNull = false
 	property  bool inDown := false;
-	@allowNull = false
+	
+	@summary@ allowNull = false
 	property float blinderStatus := 0.0;
+	
+	@summary @allowNull = false
+	property float blinderLastStatus := 0.0;
+	
 	@range = "Off,RiseUp,FallDown"
 	property int calibrationTrigger := OFF;
 	
 	@allowNull = false @unit=Units.millisecond
 	@config property long riseUpTime := 0L;
+	
 	@allowNull = false @unit=Units.millisecond
 	@config property long fallDownTime := 0L;
 	
@@ -116,6 +126,10 @@ public class BlinderControl extends Component
 		
 		if (slot == BlinderControl.blinderStatus) {
 			setInFloatComponent(BlinderControl.blinderStatus, blinderStatus);
+		}
+		
+		if (slot == BlinderControl.blinderLastStatus) {
+			setInFloatComponent(BlinderControl.blinderLastStatus, blinderLastStatus);
 		}
 		
 		if(slot == BlinderControl.calibrationTrigger) {
@@ -228,26 +242,12 @@ public class BlinderControl extends Component
 				startTime = 0L;
 		}
 	
+		lastBlStatus = blinderStatus;
 		blinderStatus := getStatus();
-
-		/*	if(timeDelay > Sys.ticks()) {
-			return;
-		}
-		if((inUp && outDown) || (inDown && outUp)) {
-			outDown := false;
-			outUp := false;
-			timeDelay = Sys.ticks() + 400ms;
-		}
-		else if(!(inUp && inDown)){
-			outUp := inUp;
-			outDown := inDown;
-		}
-		else {
-			outUp := false;
-			outDown := false;
-		}*/
 		
-	
+		if(lastBlStatus != blinderStatus) {
+			blinderLastStatus := lastBlStatus;
+		}
 
 	}
 	
@@ -385,4 +385,5 @@ public class BlinderControl extends Component
 	private float actualPosition = 0.0;
 	private float stepOfPosition = 0.0;
 	private float lastSetPoint = 0.0;
+	private float lastBlStatus = 0.0;
 }

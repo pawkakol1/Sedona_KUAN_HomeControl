@@ -1,4 +1,4 @@
-<sedonaKit name="KUAN_HomeControl" vendor="KUAN" version="1.2.28.0.56" description="">
+<sedonaKit name="KUAN_HomeControl" vendor="KUAN" version="1.2.28.0.57" description="">
 
     <depend on="sys 1.2.28.105+" />
 	<depend on="iSMA_NativeLibs 1.2.28.2+" />
