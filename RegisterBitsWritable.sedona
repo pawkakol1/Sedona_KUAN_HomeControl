@@ -1,0 +1,101 @@
+
+@niagaraIcon="module://icons/x16/control/numericPointWr.png"
+class RegisterBitsWritable extends ModbusPoint {
+
+	@config @min=1000 @max=2999
+	property short address = 1000;
+	
+	@config @min=0 @max=15
+	property int startBit = 0;
+	
+	@config @min=1 @max=16
+	property int bitsCount = 1;
+
+	@readonly property float out;
+	
+	property float in := null;
+
+	virtual override void start() {
+		super.start();
+		mask = getBitsMask();
+	}
+
+	action void set(float value) {
+		if (!statusOK) {
+			return;
+		}
+
+		in := value;
+		out := value;
+		lastIn = value;
+		lastOut = value;
+		setInComponent();
+		wrVal(value);
+
+	}
+
+	void wrVal(float val) {
+		int valU = (short)val;
+		int actVal = Registers.getRegister(address);
+		actVal &= ~mask;
+		Registers.setRegister(address,(actVal | (mask & (valU << startBit))));
+	}
+	
+	int getBitsMask() {
+		int tmp = 0;
+		for(int i = 0; i < bitsCount; i++) {
+			tmp |= 1 << i;
+		}
+		return (tmp << startBit);
+	}
+	
+	void setInComponent() {
+		Component editedComponent = getComponentConnectedToSlot(this,"in");
+		if (editedComponent == null) {
+			return;
+		}
+		foreach (Slot slot : editedComponent.type.slots, editedComponent.type.slotsLen)
+		{
+			if (slot.isAction() && slot.name.equals("set") && slot.type.id == Type.floatId) {
+				editedComponent.invokeFloat(slot,out);
+				break;
+			}
+		}
+	}
+	
+	virtual override void changed(Slot slot) {
+		super.changed(slot);
+		if (slot == RegisterBitsWritable.startBit || slot == RegisterBitsWritable.bitsCount) {
+			mask = getBitsMask();
+		}
+	}
+
+	virtual override void execute() {
+		if (!statusOK) {
+			return;
+		}
+
+		if (in != null && in != lastIn) {
+			wrVal(in);
+			lastIn = in;
+			out := in;
+			lastOut = in;
+		}
+
+		out := (float)((mask & Registers.getRegister(address)) >> startBit);
+
+		if (out != lastOut) {
+			if (isInLink()) {
+				setInComponent();
+			}
+		}
+
+		lastIn = in;
+		lastOut = out;
+	}
+	
+	int mask;
+	
+	float lastIn;
+	float lastOut;
+}

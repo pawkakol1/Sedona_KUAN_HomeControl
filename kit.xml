@@ -1,5 +1,8 @@
-<sedonaKit name="KUAN_HomeControl" vendor="KUAN" version="1.2.28.0.50" description="">
+<sedonaKit name="KUAN_HomeControl" vendor="KUAN" version="1.2.28.0.57" description="">
 
     <depend on="sys 1.2.28.105+" />
+	<depend on="iSMA_NativeLibs 1.2.28.2+" />
+	<depend on="iSMA_ModbusTcpSlaveNetwork 1.2.28.104+" />
+	<depend on="iSMA_platAAC20 1.2.28.110+" />
 	<source dir="." />
 </sedonaKit>
